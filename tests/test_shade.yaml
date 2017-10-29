@@ -1,0 +1,24 @@
+- name: Test Shade on Director
+  hosts: undercloud
+  vars:
+    - ca_cert: /home/stack/undercloud.shade_test.pem # Will be created as part of this run
+  environment:
+    PATH: '/home/stack/shade/bin:{{ ansible_env.PATH }}'
+  tasks:
+  - name: See if we are using SSL
+    stat:
+      path: "{{ ca_cert }}"
+    register: pem_file
+  - name: Get facts on bm-deploy-kernel (using https)
+    os_image_facts:
+      cloud: undercloud
+      image: overcloud-full
+      cacert: "{{ ca_cert }}"
+    when: pem_file.stat.exists is defined
+  - name: Get facts on bm-deploy-kernel (using http)
+    os_image_facts:
+      cloud: undercloud
+      image: overcloud-full
+    when: pem_file.stat.exists is not defined
+  - debug:
+       var: openstack_image

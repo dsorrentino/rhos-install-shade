@@ -1,0 +1,54 @@
+- name: Install Shade on Red Hat Openstack Director
+  hosts: undercloud
+  vars:
+    - packages:
+        - python-virtualenv
+  tasks:
+    - name: Install package(s) for Python VirtualEnv
+      yum:
+        state: latest
+        name: "{{ item }}"
+      with_items: "{{ packages }}"
+      become: True
+      become_method: sudo
+      become_user: root
+    - name: Pip install setuptools and shade in Virtualenv called shade
+      pip:
+        virtualenv: /home/stack/shade
+        virtualenv_command: virtualenv
+        virtualenv_site_packages: yes
+        extra_args: --upgrade
+        name: "{{ item }}"
+      with_items:
+        - setuptools
+        - shade
+    - name: Create clouds.yaml file
+      shell: |
+        mkdir -p ~/.config/openstack 2>/dev/null
+        if [[ -f ~/.config/openstack/clouds.yaml ]]
+        then
+          mv ~/.config/openstack/clouds.yaml ~/.config/openstack/clouds.yaml.$(date +'%Y%m%d-%H%M')
+        fi
+        echo 'clouds:' >~/.config/openstack/clouds.yaml.config
+        for RC_FILE in ~/stackrc ~/overcloudrc
+        do
+          if [[ -f ${RC_FILE} ]]
+          then
+            source ${RC_FILE}
+            OS_REGIONNAME=$(openstack endpoint list -c Region -f value | sort -u | head -1)
+
+            if [[ -z "${OS_TENANT_NAME}" ]]
+            then
+              OS_TENANT_NAME=${OS_PROJECT_NAME}
+            fi
+
+            echo "  ${OS_CLOUDNAME}:" >>~/.config/openstack/clouds.yaml.config
+            echo "    region_name: ${OS_REGIONNAME}" >>~/.config/openstack/clouds.yaml.config
+            echo "    auth:" >>~/.config/openstack/clouds.yaml.config
+            echo "      username: '${OS_USERNAME}'" >>~/.config/openstack/clouds.yaml.config
+            echo "      password: ${OS_PASSWORD}" >>~/.config/openstack/clouds.yaml.config
+            echo "      project_name: '${OS_TENANT_NAME}'" >>~/.config/openstack/clouds.yaml.config
+            echo "      auth_url: '${OS_AUTH_URL}'" >>~/.config/openstack/clouds.yaml.config
+          fi
+        done
+        mv ~/.config/openstack/clouds.yaml.config ~/.config/openstack/clouds.yaml

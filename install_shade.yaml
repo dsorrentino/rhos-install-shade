@@ -22,7 +22,12 @@
       with_items:
         - setuptools
         - shade
-    - name: Create clouds.yaml file
+    - name: Obtain name of overcloud to determine rc file
+      shell: |
+        source ~/stackrc
+        openstack stack list -c "Stack Name" -f value
+      register: stack_list
+    - name: Create clouds.yaml.config file with undercloud data
       shell: |
         mkdir -p ~/.config/openstack 2>/dev/null
         if [[ -f ~/.config/openstack/clouds.yaml ]]
@@ -30,25 +35,53 @@
           mv ~/.config/openstack/clouds.yaml ~/.config/openstack/clouds.yaml.$(date +'%Y%m%d-%H%M')
         fi
         echo 'clouds:' >~/.config/openstack/clouds.yaml.config
-        for RC_FILE in ~/stackrc ~/overcloudrc
-        do
-          if [[ -f ${RC_FILE} ]]
+        RC_FILE=~/stackrc
+        if [[ -f ${RC_FILE} ]]
+        then
+          source ${RC_FILE}
+          OS_REGIONNAME=$(openstack endpoint list -c Region -f value | sort -u | head -1)
+
+          if [[ -z "${OS_TENANT_NAME}" ]]
           then
-            source ${RC_FILE}
-            OS_REGIONNAME=$(openstack endpoint list -c Region -f value | sort -u | head -1)
-
-            if [[ -z "${OS_TENANT_NAME}" ]]
-            then
-              OS_TENANT_NAME=${OS_PROJECT_NAME}
-            fi
-
-            echo "  ${OS_CLOUDNAME}:" >>~/.config/openstack/clouds.yaml.config
-            echo "    region_name: ${OS_REGIONNAME}" >>~/.config/openstack/clouds.yaml.config
-            echo "    auth:" >>~/.config/openstack/clouds.yaml.config
-            echo "      username: '${OS_USERNAME}'" >>~/.config/openstack/clouds.yaml.config
-            echo "      password: ${OS_PASSWORD}" >>~/.config/openstack/clouds.yaml.config
-            echo "      project_name: '${OS_TENANT_NAME}'" >>~/.config/openstack/clouds.yaml.config
-            echo "      auth_url: '${OS_AUTH_URL}'" >>~/.config/openstack/clouds.yaml.config
+            OS_TENANT_NAME=${OS_PROJECT_NAME}
           fi
-        done
-        mv ~/.config/openstack/clouds.yaml.config ~/.config/openstack/clouds.yaml
+
+          echo "  ${OS_CLOUDNAME}:" >>~/.config/openstack/clouds.yaml.config
+          echo "    region_name: ${OS_REGIONNAME}" >>~/.config/openstack/clouds.yaml.config
+          echo "    auth:" >>~/.config/openstack/clouds.yaml.config
+          echo "      username: '${OS_USERNAME}'" >>~/.config/openstack/clouds.yaml.config
+          echo "      password: ${OS_PASSWORD}" >>~/.config/openstack/clouds.yaml.config
+          echo "      project_name: '${OS_TENANT_NAME}'" >>~/.config/openstack/clouds.yaml.config
+          echo "      auth_url: '${OS_AUTH_URL}'" >>~/.config/openstack/clouds.yaml.config
+        fi
+    - name: Add overcloud to clouds.yaml.config
+      shell: |
+        RC_FILE=~/{{ stack_list.stdout }}rc
+        if [[ -f ${RC_FILE} ]]
+        then
+          source ${RC_FILE}
+          OS_REGIONNAME=$(openstack endpoint list -c Region -f value | sort -u | head -1)
+
+          if [[ -z "${OS_TENANT_NAME}" ]]
+          then
+            OS_TENANT_NAME=${OS_PROJECT_NAME}
+          fi
+
+          echo "  ${OS_CLOUDNAME}:" >>~/.config/openstack/clouds.yaml.config
+          echo "    region_name: ${OS_REGIONNAME}" >>~/.config/openstack/clouds.yaml.config
+          echo "    auth:" >>~/.config/openstack/clouds.yaml.config
+          echo "      username: '${OS_USERNAME}'" >>~/.config/openstack/clouds.yaml.config
+          echo "      password: ${OS_PASSWORD}" >>~/.config/openstack/clouds.yaml.config
+          echo "      project_name: '${OS_TENANT_NAME}'" >>~/.config/openstack/clouds.yaml.config
+          echo "      auth_url: '${OS_AUTH_URL}'" >>~/.config/openstack/clouds.yaml.config
+        fi
+      when: stack_list.stdout != ""
+    - name: Move clouds.yaml into place
+      copy:
+        src: ~/.config/openstack/clouds.yaml.config
+        dest: ~/.config/openstack/clouds.yaml
+        remote_src: True
+    - name: Clean up clouds.yaml.config
+      file:
+        path: ~/.config/openstack/clouds.yaml.config
+        state: absent
